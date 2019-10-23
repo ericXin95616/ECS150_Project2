@@ -62,8 +62,6 @@ int add_thread_to_scheduler(TCB *newThread) {
    if(!newThread)
        return -1;
 
-   newThread->retval = -1; //set minus 1 as its initial value
-   newThread->waitingThreadTID = -1; //set minus 1 as default value
    queue_t *destQueue = NULL;
    switch (newThread->status){
        case READY:
@@ -108,6 +106,8 @@ int add_main_thread_to_scheduler(){
         return -1;
     }
     mainThread->TID = 0;
+    mainThread->retval = -1;
+    mainThread->waitingThreadTID = INT16_MAX;
     mainThread->status = RUNNING;
     //I think we need to first malloc memory for ctx variable!
     //Do we need to clear this memory?
@@ -131,6 +131,8 @@ int uthread_create(uthread_func_t func, void *arg)
         perror("malloc");
         return -1;
     }
+    newThread->retval = -1; //set minus 1 as its initial value
+    newThread->waitingThreadTID = INT16_MAX; //set short max as default value
 
     newThread->TID = threadScheduler.NEXT_TID;
     //check if it is our first time to call thread_create
@@ -168,18 +170,20 @@ int uthread_create(uthread_func_t func, void *arg)
  */
 void uthread_yield(void)
 {
-    TCB *currentThread = NULL;
-    assert(queue_length(threadScheduler.readyThreads) > 0);
-    queue_dequeue(threadScheduler.runningThreads, (void**)&currentThread);
     TCB *nextThread = NULL;
     int returnVal = queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
-    //there is no thread that is ready to be execute, process fail to quit
+    //there is no thread that is ready to be execute, thread will continue running;
     if(returnVal == -1)
-        exit(EXIT_SUCCESS);
+        return;
+    //else, we switch to next thread
+    TCB *currentThread = NULL;
+    queue_dequeue(threadScheduler.runningThreads, (void**)&currentThread);
+
     currentThread->status = READY;
+    add_thread_to_scheduler(currentThread);
     nextThread->status = RUNNING;
-    queue_enqueue(threadScheduler.runningThreads, nextThread);
-    queue_enqueue(threadScheduler.readyThreads, currentThread);
+    add_thread_to_scheduler(nextThread);
+
     uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
 }
 
@@ -198,7 +202,7 @@ uthread_t uthread_self(void)
  */
 int find_thread(void *data, void *arg)
 {
-    if(!data || !arg)
+    if(!data)
         return 0;
 
     TCB *ele = (TCB *)data;
@@ -218,24 +222,12 @@ int find_thread(void *data, void *arg)
 void uthread_exit(int retval)
 {
     TCB *currentThread = NULL;
-    //assert(queue_length(threadScheduler.readyThreads) > 0);
     queue_dequeue(threadScheduler.runningThreads, (void**)&currentThread);
-    TCB *nextThread = NULL;
-    int returnVal = queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
-    //there is no thread that is ready to be execute, process fail to quit
-    if(returnVal == -1)
-        exit(EXIT_SUCCESS);
-
-    currentThread->status = FINISHED;
-    currentThread->retval = retval;
-    nextThread->status = RUNNING;
-    queue_enqueue(threadScheduler.runningThreads, nextThread);
-    queue_enqueue(threadScheduler.finishedThreads, currentThread);
 
     //if there is a thread waiting current thread
     //we need to bring that thread back to ready list
     //so that it can collect exit status of current thread
-    if(currentThread->waitingThreadTID != -1){
+    if(currentThread->waitingThreadTID != INT16_MAX){
         TCB *waitingThread = NULL;
         queue_iterate(threadScheduler.waitingThreads, find_thread,
                 (void*)currentThread->waitingThreadTID, (void**)&waitingThread);
@@ -244,6 +236,24 @@ void uthread_exit(int retval)
         waitingThread->status = READY;
         queue_enqueue(threadScheduler.readyThreads, waitingThread);
     }
+
+    TCB *nextThread = NULL;
+    int returnVal = queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
+
+    //there is no thread that is ready to be execute, we exit the program
+    //TODO: Do we need to free all the dynamic memory before quit?
+    if(returnVal == -1){
+        exit(EXIT_SUCCESS);
+    }
+
+    //else, we switch to next thread
+    currentThread->status = FINISHED;
+    currentThread->retval = retval;
+    add_thread_to_scheduler(currentThread);
+
+    nextThread->status = RUNNING;
+    add_thread_to_scheduler(nextThread);
+
     uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
 }
 
@@ -303,8 +313,8 @@ int uthread_join(uthread_t tid, int *retval)
     currentThread->status = WAITING;
     nextThread->status = RUNNING;
     nextThread->waitingThreadTID = currentThread->TID;
-    queue_enqueue(threadScheduler.waitingThreads, (currentThread));
-    queue_enqueue(threadScheduler.runningThreads, nextThread);
+    add_thread_to_scheduler(currentThread);
+    add_thread_to_scheduler(nextThread);
     uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
 
     //when currentThread is resumed, nextThread should already be finished

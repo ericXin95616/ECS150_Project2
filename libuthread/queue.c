@@ -154,6 +154,7 @@ int queue_iterate(queue_t queue, queue_func_t func, void *arg, void **data)
         //returnVal == 1
         if(data != NULL)
             *data = it->data;
+        return 0;
     }
     return 0;
 }
