@@ -8,8 +8,18 @@
 #include <assert.h>
 
 int hello(void *arg){
-    printf("Hello! I am thread %d\n", uthread_self());
-    return 0;
+    uthread_t tid = uthread_self();
+    int n = (int)(long)arg;
+    if(tid >= n){
+        printf("Hello! I am thread %d. I am the last thread!\n", tid);
+        return tid;
+    }
+
+    printf("Hello! I am thread %d. I am waiting for thread %d\n", tid, tid + 1);
+    int retval;
+    uthread_join(tid+1, &retval);
+    printf("Thread %d is finished. Return value is %d\n", tid+1, retval);
+    return tid;
 }
 
 void* phello(void *arg){
@@ -21,17 +31,11 @@ void uthread_test(int n) {
     uthread_t thread[n];
 
     for (int i = 0; i < n; ++i) {
-        thread[i] = uthread_create(hello, NULL);
+        thread[i] = uthread_create(hello, (void*)n);
     }
-
-    for (int j = 0; j < n; ++j) {
-        int retval;
-        uthread_join(thread[j], &retval);
-        printf("Return value from thread %d: %d\n", thread[j], retval);
-    }
-
-    uthread_join(uthread_create(hello, NULL), NULL);
-    printf("a\n");
+    int retval;
+    uthread_join(thread[0], &retval);
+    printf("Return value is %d\n", retval);
 }
 
 void pthread_test(int n) {

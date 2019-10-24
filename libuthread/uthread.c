@@ -212,6 +212,33 @@ int find_thread(void *data, void *arg)
     else
         return 0;
 }
+/*
+ * destroy myQueue
+ * if there is still element inside myQueue
+ * we also free that element
+ */
+void destroy_queue(queue_t myQueue){
+    TCB *tmp;
+    while(queue_length(myQueue) != 0){
+        queue_dequeue(myQueue, (void**)&tmp);
+        uthread_ctx_destroy_stack(tmp->ctx->uc_stack.ss_sp);
+        free(tmp->ctx);
+    }
+    queue_destroy(myQueue);
+}
+
+/*
+ * we need to bring that thread back to ready list
+ * so that it can collect exit status of current thread
+ */
+void activate_waiting_thread(uthread_t tid){
+    TCB *waitingThread = NULL;
+    queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)tid, (void**)&waitingThread);
+    assert(waitingThread);
+    queue_delete(threadScheduler.waitingThreads, waitingThread);
+    waitingThread->status = READY;
+    add_thread_to_scheduler(waitingThread);
+}
 
 /*
  * exit is very similiar to yield
@@ -223,28 +250,22 @@ void uthread_exit(int retval)
 {
     TCB *currentThread = NULL;
     queue_dequeue(threadScheduler.runningThreads, (void**)&currentThread);
-
-    //if there is a thread waiting current thread
-    //we need to bring that thread back to ready list
-    //so that it can collect exit status of current thread
-    if(currentThread->waitingThreadTID != INT16_MAX){
-        TCB *waitingThread = NULL;
-        queue_iterate(threadScheduler.waitingThreads, find_thread,
-                (void*)currentThread->waitingThreadTID, (void**)&waitingThread);
-        assert(waitingThread);
-        queue_delete(threadScheduler.waitingThreads, waitingThread);
-        waitingThread->status = READY;
-        queue_enqueue(threadScheduler.readyThreads, waitingThread);
-    }
-
-    TCB *nextThread = NULL;
-    int returnVal = queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
-
-    //there is no thread that is ready to be execute, we exit the program
-    //TODO: Do we need to free all the dynamic memory before quit?
-    if(returnVal == -1){
+    //if current thread is main
+    //we free everything and quit
+    if(currentThread->TID == 0){
+        destroy_queue(threadScheduler.readyThreads);
+        destroy_queue(threadScheduler.waitingThreads);
+        destroy_queue(threadScheduler.finishedThreads);
+        destroy_queue(threadScheduler.runningThreads);
         exit(EXIT_SUCCESS);
     }
+    //if there is a thread waiting current thread
+    if(currentThread->waitingThreadTID != INT16_MAX)
+        activate_waiting_thread(currentThread->waitingThreadTID);
+
+    TCB *nextThread = NULL;
+    queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
+    assert(nextThread);
 
     //else, we switch to next thread
     currentThread->status = FINISHED;
@@ -257,11 +278,10 @@ void uthread_exit(int retval)
     uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
 }
 
-
-
 /*
  * when we call this function, we guarantee that
  * reapedThread is in finished list and reapedThread!=NULL
+ * we collect the return value and free allocated memory
  * Return value:
  * reapThread->retval
  */
@@ -287,10 +307,10 @@ int uthread_join(uthread_t tid, int *retval)
         return -1;
     //we first need to check if @tid is finished
     //if it is, we can directly collect it finished status and return
-    TCB *nextThread = NULL;
-    queue_iterate(threadScheduler.finishedThreads, find_thread, (void*)tid, (void**)&nextThread);
-    if(nextThread){
-        int tmp = reap_sthread(nextThread);
+    TCB *threadTID = NULL;
+    queue_iterate(threadScheduler.finishedThreads, find_thread, (void*)tid, (void**)&threadTID);
+    if(threadTID){
+        int tmp = reap_sthread(threadTID);
         if(retval)
             *retval = tmp;
         return 0;
@@ -301,28 +321,33 @@ int uthread_join(uthread_t tid, int *retval)
     //TODO: what if @tid is in waiting list? when @tid is also blocked?
     TCB *currentThread = NULL;
     queue_dequeue(threadScheduler.runningThreads, (void**)&currentThread);
-    queue_iterate(threadScheduler.readyThreads, find_thread, (void*)tid, (void**)&nextThread);
-    //fail to find target thread
-    if(!nextThread)
-        return -1;
-    //delete target thread from the ready list
-    queue_delete(threadScheduler.readyThreads, nextThread);
-
+    queue_iterate(threadScheduler.readyThreads, find_thread, (void*)tid, (void**)&threadTID);
+    //fail to find @tid thread in ready list
+    if(!threadTID){
+        queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)tid, (void**)&threadTID);
+        //fail to find @tid in waiting list
+        if(!threadTID)
+            return -1;
+    }
     //we put current thread into the waiting list
-    //block it until nextThread finish its execution
+    //block it until threadTID finish its execution
     currentThread->status = WAITING;
-    nextThread->status = RUNNING;
-    nextThread->waitingThreadTID = currentThread->TID;
+    threadTID->waitingThreadTID = currentThread->TID;
     add_thread_to_scheduler(currentThread);
+
+    //switch context to next ready thread
+    TCB *nextThread = NULL;
+    queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
+    assert(nextThread);
+    nextThread->status = RUNNING;
     add_thread_to_scheduler(nextThread);
     uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
 
-    //when currentThread is resumed, nextThread should already be finished
+    //when currentThread is resumed, threadTID should already be finished
     //we collect its exit status and free it
-    assert(nextThread->status == FINISHED);
-    int tmp = reap_sthread(nextThread);
+    assert(threadTID->status == FINISHED);
+    int tmp = reap_sthread(threadTID);
     if(retval)
         *retval = tmp;
     return 0;
 }
-
