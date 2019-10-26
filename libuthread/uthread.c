@@ -178,8 +178,8 @@ int find_thread(void *data, void *arg)
         return 0;
 
     TCB *ele = (TCB *)data;
-    uthread_t dest = (uthread_t)(long)arg;
-    if(ele->TID == dest)
+    uthread_t *dest = (uthread_t *)arg;
+    if(ele->TID == *dest)
         return 1;
     else
         return 0;
@@ -207,7 +207,7 @@ void destroy_queue(queue_t myQueue){
 void activate_waiting_thread(uthread_t tid){
     TCB *waitingThread = NULL;
     //we dont change the threadScheduler, so it is fine to be preempted
-    queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)tid, (void**)&waitingThread);
+    queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)&tid, (void**)&waitingThread);
     assert(waitingThread);
 
     preempt_disable();
@@ -299,7 +299,7 @@ int uthread_join(uthread_t tid, int *retval)
     //we first need to check if @tid is finished
     //if it is, we can directly collect it finished status and return
     TCB *threadTID = NULL;
-    queue_iterate(threadScheduler.finishedThreads, find_thread, (void*)tid, (void**)&threadTID);
+    queue_iterate(threadScheduler.finishedThreads, find_thread, (void*)&tid, (void**)&threadTID);
     if(threadTID){
         int tmp = reap_sthread(threadTID);
         if(retval)
@@ -310,10 +310,10 @@ int uthread_join(uthread_t tid, int *retval)
     //if @tid is still an active thread
     //we have to bring it to execution and block current thread
     TCB *currentThread = threadScheduler.runningThread;
-    queue_iterate(threadScheduler.readyThreads, find_thread, (void*)tid, (void**)&threadTID);
+    queue_iterate(threadScheduler.readyThreads, find_thread, (void*)&tid, (void**)&threadTID);
     //fail to find @tid thread in ready list
     if(!threadTID){
-        queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)tid, (void**)&threadTID);
+        queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)&tid, (void**)&threadTID);
         //fail to find @tid in waiting list
         if(!threadTID)
             return -1;
