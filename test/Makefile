@@ -3,7 +3,8 @@
 #  You shouldn't have to touch the rest (but you can read it to understand!)
 programs := \
 	uthread_hello.x \
-	uthread_yield.x
+	uthread_yield.x \
+	test_preempt.x
 
 # User-level thread library
 UTHREADLIB := libuthread

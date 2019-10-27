@@ -27,7 +27,6 @@ struct sigaction new_action;
  * TODO: is it okay to directly call uthread_yield?
  */
 void VTALRM_handler(int signum) {
-    printf("Signal handler is invoked!\n");
     uthread_yield();
 }
 
@@ -49,17 +48,14 @@ void preempt_start(void)
 {
 	//install a signal handler
 	new_action.sa_handler = VTALRM_handler;
-
-	//we block every signal except SIGVTALRM
-	sigfillset(&new_action.sa_mask);
-	sigdelset(&new_action.sa_mask, SIGVTALRM);
+	sigemptyset(&new_action.sa_mask);
 	new_action.sa_flags = 0;
 
-	//Configure a timer that fire an SIGVTALRM 100 times per second
-    struct itimerval timer;
-	timer.it_interval.tv_sec = 0;
-	timer.it_interval.tv_usec = ELAPSED_TIME;
-	timer.it_value = timer.it_interval;
+    struct itimerval timer = {};
+    timer.it_interval.tv_usec = (long int)ELAPSED_TIME;
+    timer.it_interval.tv_sec = 0;
+    timer.it_value.tv_usec = (long int)ELAPSED_TIME;
+    timer.it_value.tv_sec = 0;
 
 	if(sigaction(SIGVTALRM, &new_action, NULL) < 0
 	|| setitimer(ITIMER_VIRTUAL, &timer, NULL) < 0){

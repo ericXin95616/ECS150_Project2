@@ -13,23 +13,11 @@
 #include "uthread.h"
 
 /*
- * uthread_s == uthread_status
- * used to show different status of different threads
- */
-typedef enum uthread_s {
-    READY,
-    RUNNING,
-    WAITING,
-    FINISHED
-}uthread_s;
-
-/*
  * TCB is used to store all the information
  * we need to know about a thread
  */
 typedef struct uthread_control_block{
     uthread_t TID;
-    uthread_s status;
     uthread_ctx_t *ctx; //include stack, sigmask, uc_mcontext
     int retval;
     uthread_t waitingThreadTID;
@@ -76,7 +64,6 @@ int add_main_thread_to_scheduler(){
     mainThread->TID = 0;
     mainThread->retval = -1;
     mainThread->waitingThreadTID = INT16_MAX; //TODO: this might not be a very clever way
-    mainThread->status = RUNNING;
     //I think we need to first malloc memory for ctx variable!
     //Do we need to clear this memory?
     mainThread->ctx = malloc(sizeof(uthread_ctx_t));
@@ -120,7 +107,6 @@ int uthread_create(uthread_func_t func, void *arg)
         return -1;
     }
     newThread->ctx = ctx;
-    newThread->status = READY;
 
     //disable preempt when change threadScheduler
     preempt_disable();
@@ -149,18 +135,13 @@ void uthread_yield(void)
     TCB *nextThread = NULL;
 
     preempt_disable();
-
+    //put currentThread in ready status and nextThread in running status
     queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
-    //change the status
-    nextThread->status = RUNNING;
-    currentThread->status = READY;
-    //enqueue
     queue_enqueue(threadScheduler.readyThreads, currentThread);
     threadScheduler.runningThread = nextThread;
+    uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
 
     preempt_enable();
-
-    uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
 }
 
 uthread_t uthread_self(void)
@@ -213,7 +194,6 @@ void activate_waiting_thread(uthread_t tid){
     preempt_disable();
 
     queue_delete(threadScheduler.waitingThreads, waitingThread);
-    waitingThread->status = READY;
     queue_enqueue(threadScheduler.readyThreads, waitingThread);
 
     preempt_enable();
@@ -255,15 +235,12 @@ void uthread_exit(int retval)
 
     queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
     assert(nextThread);
-    currentThread->status = FINISHED;
     currentThread->retval = retval;
     queue_enqueue(threadScheduler.finishedThreads, currentThread);
-    nextThread->status = RUNNING;
     threadScheduler.runningThread = nextThread;
+    uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
 
     preempt_enable();
-
-    uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
 }
 
 /*
@@ -325,24 +302,20 @@ int uthread_join(uthread_t tid, int *retval)
 
     //we put current thread into the waiting list
     //block it until threadTID finish its execution
-    currentThread->status = WAITING;
     threadTID->waitingThreadTID = currentThread->TID;
     queue_enqueue(threadScheduler.waitingThreads, currentThread);
 
     //bring next readyThread to execute
     queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
     assert(nextThread);
-    nextThread->status = RUNNING;
     threadScheduler.runningThread = nextThread;
-
-    preempt_enable();
-
     //switch context to next ready thread
     uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
 
+    preempt_enable();
+
     //when currentThread is resumed, threadTID should already be finished
     //we collect its exit status and free it
-    assert(threadTID->status == FINISHED);
     int tmp = reap_sthread(threadTID);
     if(retval)
         *retval = tmp;
