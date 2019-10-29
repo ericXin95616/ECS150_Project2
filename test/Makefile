@@ -3,7 +3,16 @@
 #  You shouldn't have to touch the rest (but you can read it to understand!)
 programs := \
 	uthread_hello.x \
-	uthread_yield.x
+	uthread_yield.x \
+<<<<<<< HEAD
+	test_preempt.x \
+	test_queue.x \
+	my_test_preempt.x
+=======
+	uthread_hello_join.x \
+	uthread_yield_join.x \
+	test_preempt.x
+>>>>>>> 6aae4a5c3573e4818330978ce3cd8c79f924449b
 
 # User-level thread library
 UTHREADLIB := libuthread
@@ -74,4 +83,3 @@ clean:
 	$(Q)rm -rf $(objs) $(deps) $(programs)
 
 .PHONY: clean $(libuthread)
-

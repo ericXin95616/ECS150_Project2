@@ -12,8 +12,7 @@
  * context.
  *
  * Such a context is initialized for the first time when creating a thread with
- * uthread_ctx_init(). Once initialized, it can be switched to with
- * uthread_ctx_switch().
+ * uthread_ctx_init(). O.
  */
 typedef ucontext_t uthread_ctx_t;
 
