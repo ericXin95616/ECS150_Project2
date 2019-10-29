@@ -4,7 +4,9 @@
 programs := \
 	uthread_hello.x \
 	uthread_yield.x \
-	test_preempt.x
+	test_preempt.x \
+	test_queue.x \
+	my_test_preempt.x
 
 # User-level thread library
 UTHREADLIB := libuthread
@@ -75,4 +77,3 @@ clean:
 	$(Q)rm -rf $(objs) $(deps) $(programs)
 
 .PHONY: clean $(libuthread)
-

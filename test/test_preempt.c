@@ -3,7 +3,7 @@
 //
 #include <stdlib.h>
 #include <stdio.h>
-#include "uthread.h"
+#include <uthread.h>
 
 int isPreemptWorking(void *arg) {
     printf("Preemption is working!\nIf it is not, you cannot see me!\n");

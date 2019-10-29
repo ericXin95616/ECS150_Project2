@@ -48,7 +48,9 @@ void preempt_start(void)
 {
 	//install a signal handler
 	new_action.sa_handler = VTALRM_handler;
-	sigemptyset(&new_action.sa_mask);
+	//block every signal except SIGVTALRM
+	sigfillset(&new_action.sa_mask);
+	sigdelset(&new_action.sa_mask, SIGVTALRM);
 	new_action.sa_flags = 0;
 
     struct itimerval timer = {};

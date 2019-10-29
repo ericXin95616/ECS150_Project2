@@ -87,7 +87,7 @@ int uthread_create(uthread_func_t func, void *arg)
     newThread->waitingThreadTID = INT16_MAX; //set short max as default value
 
     newThread->TID = threadScheduler.NEXT_TID;
-    //check if it is our first time to call thread_create
+    //check if it is our first time to call uthread_create
     if(newThread->TID == 1) {
         add_main_thread_to_scheduler();
         preempt_start();
