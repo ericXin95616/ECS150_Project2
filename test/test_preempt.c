@@ -5,12 +5,14 @@
 #include <stdio.h>
 #include <uthread.h>
 
-int isPreemptWorking(void *arg) {
+int isPreemptWorking(void *arg)
+{
     printf("Preemption is working!\nIf it is not, you cannot see me!\n");
     exit(EXIT_SUCCESS);
 }
 
-int main() {
+int main()
+{
     uthread_create(isPreemptWorking, NULL);
     while(1);
 }

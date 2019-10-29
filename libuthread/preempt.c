@@ -17,8 +17,6 @@
 #define HZ 100
 #define ELAPSED_TIME 10000
 
-struct sigaction new_action;
-
 /*
  * signal handler for SIGVTALRM
  * whenever we receive SIGVTALRM
@@ -26,27 +24,41 @@ struct sigaction new_action;
  * to yield
  * TODO: is it okay to directly call uthread_yield?
  */
-void VTALRM_handler(int signum) {
+void VTALRM_handler(int signum)
+{
     uthread_yield();
 }
 
 void preempt_disable(void)
 {
     //uninstall the signal handler
+    struct sigaction new_action;
     new_action.sa_handler = SIG_IGN;
-    sigaction(SIGVTALRM, &new_action, NULL);
+    sigfillset(&new_action.sa_mask);
+    sigdelset(&new_action.sa_mask, SIGVTALRM);
+    new_action.sa_flags = 0;
+
+    if(sigaction(SIGVTALRM, &new_action, NULL) < 0)
+        printf("Preempt disable fail.\n");
 }
 
 void preempt_enable(void)
 {
     //reinstall the signal handler
+    struct sigaction new_action;
     new_action.sa_handler = VTALRM_handler;
-    sigaction(SIGVTALRM, &new_action, NULL);
+    sigfillset(&new_action.sa_mask);
+    sigdelset(&new_action.sa_mask, SIGVTALRM);
+    new_action.sa_flags = 0;
+
+    if(sigaction(SIGVTALRM, &new_action, NULL) < 0)
+        printf("Preempt disable fail.\n");
 }
 
 void preempt_start(void)
 {
 	//install a signal handler
+    struct sigaction new_action;
 	new_action.sa_handler = VTALRM_handler;
 	//block every signal except SIGVTALRM
 	sigfillset(&new_action.sa_mask);

@@ -43,7 +43,6 @@ int thread1(void* arg)
 {
 	uthread_join(uthread_create(thread2, NULL), NULL);
 	printf("thread%d\n", uthread_self());
-	// uthread_yield();
 	return 0;
 }
 

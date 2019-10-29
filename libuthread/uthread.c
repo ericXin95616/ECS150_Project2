@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <stdbool.h>
+#include <zconf.h>
 
 #include "context.h"
 #include "preempt.h"
@@ -51,7 +52,8 @@ scheduler threadScheduler = {NULL, NULL, NULL, NULL, 1};
  * that's the reason why professor don't initialize
  * ctx[0])
  */
-int add_main_thread_to_scheduler(){
+int add_main_thread_to_scheduler()
+{
     threadScheduler.readyThreads = queue_create();
     threadScheduler.finishedThreads = queue_create();
     threadScheduler.waitingThreads = queue_create();
@@ -63,7 +65,7 @@ int add_main_thread_to_scheduler(){
     }
     mainThread->TID = 0;
     mainThread->retval = -1;
-    mainThread->waitingThreadTID = INT16_MAX; //TODO: this might not be a very clever way
+    mainThread->waitingThreadTID = USHRT_MAX;
     //I think we need to first malloc memory for ctx variable!
     //Do we need to clear this memory?
     mainThread->ctx = malloc(sizeof(uthread_ctx_t));
@@ -84,11 +86,15 @@ int uthread_create(uthread_func_t func, void *arg)
         return -1;
     }
     newThread->retval = -1; //set minus 1 as its initial value
-    newThread->waitingThreadTID = INT16_MAX; //set short max as default value
+    newThread->waitingThreadTID = USHRT_MAX;
 
     newThread->TID = threadScheduler.NEXT_TID;
+    //check if TID overflow
+    if(newThread->TID == 0)
+        return -1;
+
     //check if it is our first time to call uthread_create
-    if(newThread->TID == 1) {
+    if(newThread->TID == 1){
         add_main_thread_to_scheduler();
         preempt_start();
     }
@@ -171,7 +177,8 @@ int find_thread(void *data, void *arg)
  * if there is still element inside myQueue
  * we also free that element
  */
-void destroy_queue(queue_t myQueue){
+void destroy_queue(queue_t myQueue)
+{
     TCB *tmp;
     while(queue_length(myQueue) != 0){
         queue_dequeue(myQueue, (void**)&tmp);
@@ -185,7 +192,8 @@ void destroy_queue(queue_t myQueue){
  * we need to bring that thread back to ready list
  * so that it can collect exit status of current thread
  */
-void activate_waiting_thread(uthread_t tid){
+void activate_waiting_thread(uthread_t tid)
+{
     TCB *waitingThread = NULL;
     //we dont change the threadScheduler, so it is fine to be preempted
     queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)&tid, (void**)&waitingThread);
@@ -199,7 +207,8 @@ void activate_waiting_thread(uthread_t tid){
     preempt_enable();
 }
 
-void exit_program() {
+void exit_program()
+{
     //we dont want to switch context when we are cleaning up
     preempt_disable();
 
@@ -226,7 +235,7 @@ void uthread_exit(int retval)
         exit_program();
 
     //if there is a thread waiting current thread
-    if(currentThread->waitingThreadTID != INT16_MAX)
+    if(currentThread->waitingThreadTID != USHRT_MAX)
         activate_waiting_thread(currentThread->waitingThreadTID);
 
     TCB *nextThread = NULL;
@@ -250,7 +259,8 @@ void uthread_exit(int retval)
  * Return value:
  * reapThread->retval
  */
-int reap_sthread(TCB *reapedThread) {
+int reap_sthread(TCB *reapedThread)
+{
     preempt_disable();
 
     queue_delete(threadScheduler.finishedThreads, reapedThread);
