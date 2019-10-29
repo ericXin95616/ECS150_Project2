@@ -4,6 +4,8 @@
 programs := \
 	uthread_hello.x \
 	uthread_yield.x \
+	uthread_hello_join.x \
+	uthread_yield_join.x \
 	test_preempt.x
 
 # User-level thread library
