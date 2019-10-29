@@ -13,10 +13,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "uthread.h"
+#include "../libuthread/uthread.h"
+
+int thread4(void* arg)
+{
+	uthread_yield();
+	printf("thread%d\n", uthread_self());
+	return 0;
+}
 
 int thread3(void* arg)
 {
+	uthread_create(thread4, NULL);
 	uthread_yield();
 	printf("thread%d\n", uthread_self());
 	return 0;
@@ -24,18 +32,18 @@ int thread3(void* arg)
 
 int thread2(void* arg)
 {
-	uthread_create(thread3, NULL);
+	uthread_join(uthread_create(thread3, NULL), NULL);
 	uthread_yield();
 	printf("thread%d\n", uthread_self());
+	uthread_yield();
 	return 0;
 }
 
 int thread1(void* arg)
 {
-	uthread_create(thread2, NULL);
-	uthread_yield();
+	uthread_join(uthread_create(thread2, NULL), NULL);
 	printf("thread%d\n", uthread_self());
-	uthread_yield();
+	// uthread_yield();
 	return 0;
 }
 

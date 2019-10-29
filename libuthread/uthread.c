@@ -13,23 +13,11 @@
 #include "uthread.h"
 
 /*
- * uthread_s == uthread_status
- * used to show different status of different threads
- */
-typedef enum uthread_s {
-    READY,
-    RUNNING,
-    WAITING,
-    FINISHED
-}uthread_s;
-
-/*
  * TCB is used to store all the information
  * we need to know about a thread
  */
 typedef struct uthread_control_block{
     uthread_t TID;
-    uthread_s status;
     uthread_ctx_t *ctx; //include stack, sigmask, uc_mcontext
     int retval;
     uthread_t waitingThreadTID;
@@ -41,7 +29,7 @@ typedef struct uthread_control_block{
  */
 typedef struct scheduler{
     queue_t readyThreads;
-    queue_t runningThreads;//Only one running thread at one time
+    TCB *runningThread;
     queue_t waitingThreads;
     queue_t finishedThreads;
     uthread_t NEXT_TID;
@@ -50,45 +38,9 @@ typedef struct scheduler{
 scheduler threadScheduler = {NULL, NULL, NULL, NULL, 1};
 
 /*
- * add new thread to threadScheduler
- * we need to decide which list this newThread
- * will be added to
- *
- * return value:
- * -1 if newThread is NULL
- * 0 to indicate success
- */
-int add_thread_to_scheduler(TCB *newThread) {
-   if(!newThread)
-       return -1;
-
-   queue_t *destQueue = NULL;
-   switch (newThread->status){
-       case READY:
-           destQueue = &(threadScheduler.readyThreads);
-           break;
-       case RUNNING:
-           destQueue = &(threadScheduler.runningThreads);
-           break;
-       case WAITING:
-           destQueue = &(threadScheduler.waitingThreads);
-           break;
-       case FINISHED:
-           destQueue = &(threadScheduler.finishedThreads);
-           break;
-       default:
-           break;
-   }
-   assert(destQueue);
-   if(!(*destQueue))
-       *destQueue = queue_create();
-   assert(*destQueue);
-   queue_enqueue(*destQueue, newThread);
-   return 0;
-}
-
-/*
  * we need to add main thread to threadScheduler
+ * Before doing that, we need to create queue for
+ * all four queues in threadScheduler
  * Return value:
  * -1 if malloc fail, 0 if success
  * Note!!!
@@ -100,6 +52,10 @@ int add_thread_to_scheduler(TCB *newThread) {
  * ctx[0])
  */
 int add_main_thread_to_scheduler(){
+    threadScheduler.readyThreads = queue_create();
+    threadScheduler.finishedThreads = queue_create();
+    threadScheduler.waitingThreads = queue_create();
+
     TCB *mainThread = malloc(sizeof(TCB));
     if(!mainThread){
         perror("malloc");
@@ -107,15 +63,11 @@ int add_main_thread_to_scheduler(){
     }
     mainThread->TID = 0;
     mainThread->retval = -1;
-    mainThread->waitingThreadTID = INT16_MAX;
-    mainThread->status = RUNNING;
+    mainThread->waitingThreadTID = INT16_MAX; //TODO: this might not be a very clever way
     //I think we need to first malloc memory for ctx variable!
     //Do we need to clear this memory?
     mainThread->ctx = malloc(sizeof(uthread_ctx_t));
-    if(add_thread_to_scheduler(mainThread) == -1){
-        printf("Fail to add mainThread to threadScheduler\n");
-        return -1;
-    }
+    threadScheduler.runningThread = mainThread;
     return 0;
 }
 
@@ -136,8 +88,10 @@ int uthread_create(uthread_func_t func, void *arg)
 
     newThread->TID = threadScheduler.NEXT_TID;
     //check if it is our first time to call thread_create
-    if(newThread->TID == 1)
+    if(newThread->TID == 1) {
         add_main_thread_to_scheduler();
+        preempt_start();
+    }
 
     //I think we need to first malloc memory for ctx variable!
     //Do we need to clear this memory?
@@ -152,14 +106,16 @@ int uthread_create(uthread_func_t func, void *arg)
         printf("Fail to initialize context for thread %d\n", newThread->TID);
         return -1;
     }
-
     newThread->ctx = ctx;
-    newThread->status = READY;
-    if(add_thread_to_scheduler(newThread) == -1) {
-        printf("Fail to add thread %d to threadScheduler\n", newThread->TID);
-        return -1;
-    }
+
+    //disable preempt when change threadScheduler
+    preempt_disable();
+
+    queue_enqueue(threadScheduler.readyThreads, newThread);
     ++(threadScheduler.NEXT_TID);
+
+    preempt_enable();
+
     return newThread->TID;
 }
 
@@ -170,31 +126,28 @@ int uthread_create(uthread_func_t func, void *arg)
  */
 void uthread_yield(void)
 {
-    TCB *nextThread = NULL;
-    int returnVal = queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
+    int returnVal = queue_length(threadScheduler.readyThreads);
     //there is no thread that is ready to be execute, thread will continue running;
-    if(returnVal == -1)
+    if(returnVal == 0)
         return;
     //else, we switch to next thread
-    TCB *currentThread = NULL;
-    queue_dequeue(threadScheduler.runningThreads, (void**)&currentThread);
+    TCB *currentThread = threadScheduler.runningThread;
+    TCB *nextThread = NULL;
 
-    currentThread->status = READY;
-    add_thread_to_scheduler(currentThread);
-    nextThread->status = RUNNING;
-    add_thread_to_scheduler(nextThread);
-
+    preempt_disable();
+    //put currentThread in ready status and nextThread in running status
+    queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
+    queue_enqueue(threadScheduler.readyThreads, currentThread);
+    threadScheduler.runningThread = nextThread;
     uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
+
+    preempt_enable();
 }
 
 uthread_t uthread_self(void)
 {
-    TCB *currentThread = NULL;
-    queue_dequeue(threadScheduler.runningThreads, (void**)&currentThread);
-    assert(currentThread);
-    uthread_t TID = currentThread->TID;
-    queue_enqueue(threadScheduler.runningThreads, (void*)currentThread);
-    return TID;
+    assert(threadScheduler.runningThread);
+    return threadScheduler.runningThread->TID;
 }
 
 /*
@@ -206,12 +159,13 @@ int find_thread(void *data, void *arg)
         return 0;
 
     TCB *ele = (TCB *)data;
-    uthread_t dest = (uthread_t)(long)arg;
-    if(ele->TID == dest)
+    uthread_t *dest = (uthread_t *)arg;
+    if(ele->TID == *dest)
         return 1;
     else
         return 0;
 }
+
 /*
  * destroy myQueue
  * if there is still element inside myQueue
@@ -233,11 +187,28 @@ void destroy_queue(queue_t myQueue){
  */
 void activate_waiting_thread(uthread_t tid){
     TCB *waitingThread = NULL;
-    queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)tid, (void**)&waitingThread);
+    //we dont change the threadScheduler, so it is fine to be preempted
+    queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)&tid, (void**)&waitingThread);
     assert(waitingThread);
+
+    preempt_disable();
+
     queue_delete(threadScheduler.waitingThreads, waitingThread);
-    waitingThread->status = READY;
-    add_thread_to_scheduler(waitingThread);
+    queue_enqueue(threadScheduler.readyThreads, waitingThread);
+
+    preempt_enable();
+}
+
+void exit_program() {
+    //we dont want to switch context when we are cleaning up
+    preempt_disable();
+
+    destroy_queue(threadScheduler.readyThreads);
+    destroy_queue(threadScheduler.waitingThreads);
+    destroy_queue(threadScheduler.finishedThreads);
+    uthread_ctx_destroy_stack(threadScheduler.runningThread->ctx->uc_stack.ss_sp);
+    free(threadScheduler.runningThread->ctx);
+    exit(EXIT_SUCCESS);
 }
 
 /*
@@ -248,34 +219,28 @@ void activate_waiting_thread(uthread_t tid){
  */
 void uthread_exit(int retval)
 {
-    TCB *currentThread = NULL;
-    queue_dequeue(threadScheduler.runningThreads, (void**)&currentThread);
+    TCB *currentThread = threadScheduler.runningThread;
     //if current thread is main
     //we free everything and quit
-    if(currentThread->TID == 0){
-        destroy_queue(threadScheduler.readyThreads);
-        destroy_queue(threadScheduler.waitingThreads);
-        destroy_queue(threadScheduler.finishedThreads);
-        destroy_queue(threadScheduler.runningThreads);
-        exit(EXIT_SUCCESS);
-    }
+    if(currentThread->TID == 0)
+        exit_program();
+
     //if there is a thread waiting current thread
     if(currentThread->waitingThreadTID != INT16_MAX)
         activate_waiting_thread(currentThread->waitingThreadTID);
 
     TCB *nextThread = NULL;
+
+    preempt_disable();
+
     queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
     assert(nextThread);
-
-    //else, we switch to next thread
-    currentThread->status = FINISHED;
     currentThread->retval = retval;
-    add_thread_to_scheduler(currentThread);
-
-    nextThread->status = RUNNING;
-    add_thread_to_scheduler(nextThread);
-
+    queue_enqueue(threadScheduler.finishedThreads, currentThread);
+    threadScheduler.runningThread = nextThread;
     uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
+
+    preempt_enable();
 }
 
 /*
@@ -286,12 +251,15 @@ void uthread_exit(int retval)
  * reapThread->retval
  */
 int reap_sthread(TCB *reapedThread) {
+    preempt_disable();
+
     queue_delete(threadScheduler.finishedThreads, reapedThread);
     int retval = reapedThread->retval;
-
     //free the memory allocated for reapedThread
     uthread_ctx_destroy_stack(reapedThread->ctx->uc_stack.ss_sp);
     free(reapedThread->ctx);
+
+    preempt_enable();
     return retval;
 }
 
@@ -308,7 +276,7 @@ int uthread_join(uthread_t tid, int *retval)
     //we first need to check if @tid is finished
     //if it is, we can directly collect it finished status and return
     TCB *threadTID = NULL;
-    queue_iterate(threadScheduler.finishedThreads, find_thread, (void*)tid, (void**)&threadTID);
+    queue_iterate(threadScheduler.finishedThreads, find_thread, (void*)&tid, (void**)&threadTID);
     if(threadTID){
         int tmp = reap_sthread(threadTID);
         if(retval)
@@ -318,34 +286,36 @@ int uthread_join(uthread_t tid, int *retval)
 
     //if @tid is still an active thread
     //we have to bring it to execution and block current thread
-    //TODO: what if @tid is in waiting list? when @tid is also blocked?
-    TCB *currentThread = NULL;
-    queue_dequeue(threadScheduler.runningThreads, (void**)&currentThread);
-    queue_iterate(threadScheduler.readyThreads, find_thread, (void*)tid, (void**)&threadTID);
+    TCB *currentThread = threadScheduler.runningThread;
+    queue_iterate(threadScheduler.readyThreads, find_thread, (void*)&tid, (void**)&threadTID);
     //fail to find @tid thread in ready list
     if(!threadTID){
-        queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)tid, (void**)&threadTID);
+        queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)&tid, (void**)&threadTID);
         //fail to find @tid in waiting list
         if(!threadTID)
             return -1;
     }
+
+    TCB *nextThread = NULL;
+
+    preempt_disable();
+
     //we put current thread into the waiting list
     //block it until threadTID finish its execution
-    currentThread->status = WAITING;
     threadTID->waitingThreadTID = currentThread->TID;
-    add_thread_to_scheduler(currentThread);
+    queue_enqueue(threadScheduler.waitingThreads, currentThread);
 
-    //switch context to next ready thread
-    TCB *nextThread = NULL;
+    //bring next readyThread to execute
     queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
     assert(nextThread);
-    nextThread->status = RUNNING;
-    add_thread_to_scheduler(nextThread);
+    threadScheduler.runningThread = nextThread;
+    //switch context to next ready thread
     uthread_ctx_switch(currentThread->ctx, nextThread->ctx);
+
+    preempt_enable();
 
     //when currentThread is resumed, threadTID should already be finished
     //we collect its exit status and free it
-    assert(threadTID->status == FINISHED);
     int tmp = reap_sthread(threadTID);
     if(retval)
         *retval = tmp;
