@@ -3,7 +3,119 @@
 #include <assert.h>
 #include <queue.h>
 #include <time.h>
+
 #define NORMAL_TEST_ELEMENT_NUM 10
+#define COMPLEX_TEST_ELEMENT_NUM 1000000
+
+/*
+ * this test we want to test what will happen
+ * if we enqueue an element multiple times and delete it
+ */
+void test_delete_complex()
+{
+    queue_t new = queue_create();
+    int tmp = 0;
+    assert(!queue_enqueue(new, (void*)&tmp));
+    assert(!queue_enqueue(new, (void*)&tmp));
+    assert(!queue_delete(new, (void*)&tmp));
+    assert(queue_length(new) == 1);
+    //we dequeue new and should get int *tmp
+    //we modify dequeue element, check if tmp changes too
+    int *a;
+    assert(!queue_dequeue(new, (void**)&a));
+    *a = 100;
+    assert(tmp == 100);
+    assert(!queue_destroy(new));
+    printf("Complex delete test: success.\n");
+}
+
+
+typedef struct Student_ID_Card{
+    char firstChar;
+    int id;
+}sid;
+
+int initialize_sid(void *data, void *arg)
+{
+    sid *student = (sid *)data;
+    sid *breakpoint = (sid *)arg;
+    if(student == breakpoint)
+        return 1;
+    student->id = 1;
+    student->firstChar = 'a';
+    return 0;
+}
+
+/*
+ * For this test, we enqueue user-defined data structure
+ * and call a more complex function to modify it.
+ * Then, we dequeue it, see if the result is what we expect
+ */
+void test_iterate_complex()
+{
+    queue_t new = queue_create();
+    sid *students = malloc(COMPLEX_TEST_ELEMENT_NUM * sizeof(sid));
+    for (int i = 0; i < COMPLEX_TEST_ELEMENT_NUM; ++i) {
+        students[i].firstChar = '\0';
+        students[i].id = 0;
+        assert(!queue_enqueue(new, (void*)&students[i]));
+    }
+
+    /*
+     * we use iterate to modify firstChar and id
+     * but we only modify [0, breakpoint) data.
+     * The other half we will not modify them
+     */
+    int breakpoint = rand() % COMPLEX_TEST_ELEMENT_NUM;
+    assert(!queue_iterate(new, initialize_sid, (void*)&students[breakpoint], NULL));
+    sid *tmp;
+    for (int j = 0; j < COMPLEX_TEST_ELEMENT_NUM; ++j) {
+        assert(!queue_dequeue(new, (void*)&tmp));
+        if(j < breakpoint){
+            assert(tmp->id == 1);
+            assert(tmp->firstChar == 'a');
+            continue;
+        }
+        assert(tmp->id == 0);
+        assert(tmp->firstChar == '\0');
+    }
+    free(students);
+    assert(!queue_destroy(new));
+    printf("Complex queue iterate test: success.\n");
+}
+
+/*
+ * For this test, we enqueue large size of data
+ * dequeue them. Enqueue them again and dequeue them,
+ * see if anything goes wrong
+ */
+void test_enqueue_dequeue_complex()
+{
+    queue_t new = queue_create();
+    int *data = malloc(COMPLEX_TEST_ELEMENT_NUM * sizeof(int));
+    for (int i = 0; i < COMPLEX_TEST_ELEMENT_NUM/2; ++i) {
+        assert(!queue_enqueue(new, (void*)&data[i]));
+    }
+
+    void *tmp;
+    for (int j = 0; j < COMPLEX_TEST_ELEMENT_NUM/2; ++j) {
+        assert(!queue_dequeue(new, &tmp));
+        assert(tmp == &data[j]);
+    }
+
+    for (int i = COMPLEX_TEST_ELEMENT_NUM/2 + 1; i < COMPLEX_TEST_ELEMENT_NUM; ++i) {
+        assert(!queue_enqueue(new, (void*)&data[i]));
+    }
+
+
+    for (int j = COMPLEX_TEST_ELEMENT_NUM/2 + 1; j < COMPLEX_TEST_ELEMENT_NUM; ++j) {
+        assert(!queue_dequeue(new, &tmp));
+        assert(tmp == &data[j]);
+    }
+    free(data);
+    assert(!queue_destroy(new));
+    printf("Complex queue enqueue and dequeue test: success.\n");
+}
 
 /*
  * This test is to test some special cases
@@ -11,7 +123,11 @@
  */
 void complex_test()
 {
+    test_enqueue_dequeue_complex();
 
+    test_iterate_complex();
+
+    test_delete_complex();
 }
 
 /*

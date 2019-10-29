@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "../libuthread/uthread.h"
+#include <uthread.h>
 
 int hello2(void* arg)
 {

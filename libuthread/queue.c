@@ -20,7 +20,7 @@ struct node {
 struct queue {
 	struct node *header;
     struct node *tail;
-	int numOfElement; // convenient to keep track the size of queue
+    int numOfElement; // convenient to keep track the size of queue
 };
 
 /*
