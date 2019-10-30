@@ -193,7 +193,8 @@
     + handle the timer interrupt by the handler that simulate *uthread_yield*.
 
 ### Test Files
-  + Create a thread and call an infinite loop, *preempt* should work.
-  + If *preempt* is not working, the thread will not run, because no interrupt.
-  + If *preempt* works fine, print "Preemption is working."
-  + and exit with status EXIT_SUCCESS.
+  + *test_preempt.c*: 
+    + Create a thread and call an infinite loop, *preempt* should work.
+    + If *preempt* is not working, the thread will not run, because no interrupt
+    + If *preempt* works fine, print "Preemption is working."
+    + and exit with status EXIT_SUCCESS.
