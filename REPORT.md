@@ -48,7 +48,7 @@
   + *queue_length*: get queue length by *queue->numOfElement*.
   + Return: -1 if @queue is NULL. Length of @queue otherwise.
 
-### Tester
+### Test Functions
   + *normal_test* includes all tests that user uses queue correctly.
     + *test_create_destroy*: create a queue and then destroy it.
     + *test_enqueue_dequeue*: enqueue 10 elements, then dequeue them all.
@@ -138,7 +138,7 @@
       + reapedThread is in finished list and reapedThread!=NULL.
     + Return value: *reapThread->retval*.
 
-### Tester Files
+### Test Files
   + *uthread_hello.c*: 
     + tests the creation of a single thread and its successful return.
   + *uthread_yield.c*:
@@ -155,7 +155,7 @@
     + and search the next thread inside ready list
     + and put next thread into waiting list and switch context.
   
-### Tester Files
+### Test Files
   + add two test includes yield and join function.
   + *uthread_hello_join.c*:
     + tests the creation of a two thread *hello1* and *hello22*
@@ -191,3 +191,9 @@
       + set signal handler to *SIG_IGN*, which is signal ignore.
   + *VTALRM_handler*:
     + handle the timer interrupt by the handler that simulate *uthread_yield*.
+
+### Test Files
+  + Create a thread and call an infinite loop, *preempt* should work.
+  + If *preempt* is not working, the thread will not run, because no interrupt.
+  + If *preempt* works fine, print "Preemption is working."
+  + and exit with status EXIT_SUCCESS.
