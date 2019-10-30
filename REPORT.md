@@ -191,11 +191,3 @@
       + set signal handler to *SIG_IGN*, which is signal ignore.
   + *VTALRM_handler*:
     + handle the timer interrupt by the handler that simulate *uthread_yield*.
-
-  
-    
-
-
-
-
-
