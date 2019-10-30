@@ -6,7 +6,6 @@ programs := \
 	uthread_yield.x \
 	test_preempt.x \
 	test_queue.x \
-	my_test_preempt.x \
 	uthread_hello_join.x \
 	uthread_yield_join.x
 
