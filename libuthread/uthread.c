@@ -21,6 +21,7 @@ typedef struct uthread_control_block{
     uthread_t TID;
     uthread_ctx_t *ctx; //include stack, sigmask, uc_mcontext
     int retval;
+    bool isJoined; //indicate whether it is joined by other thread
     uthread_t waitingThreadTID;
 }TCB;
 
@@ -65,7 +66,8 @@ int add_main_thread_to_scheduler()
     }
     mainThread->TID = 0;
     mainThread->retval = -1;
-    mainThread->waitingThreadTID = USHRT_MAX;
+    mainThread->isJoined = false; //it should be always false, main will not be joined by other
+    mainThread->waitingThreadTID = 0;
     //I think we need to first malloc memory for ctx variable!
     //Do we need to clear this memory?
     mainThread->ctx = malloc(sizeof(uthread_ctx_t));
@@ -86,7 +88,8 @@ int uthread_create(uthread_func_t func, void *arg)
         return -1;
     }
     newThread->retval = -1; //set minus 1 as its initial value
-    newThread->waitingThreadTID = USHRT_MAX;
+    newThread->isJoined = false;
+    newThread->waitingThreadTID = 0;
 
     newThread->TID = threadScheduler.NEXT_TID;
     //check if TID overflow
@@ -152,7 +155,6 @@ void uthread_yield(void)
 
 uthread_t uthread_self(void)
 {
-    assert(threadScheduler.runningThread);
     return threadScheduler.runningThread->TID;
 }
 
@@ -168,8 +170,7 @@ int find_thread(void *data, void *arg)
     uthread_t *dest = (uthread_t *)arg;
     if(ele->TID == *dest)
         return 1;
-    else
-        return 0;
+    return 0;
 }
 
 /*
@@ -184,6 +185,7 @@ void destroy_queue(queue_t myQueue)
         queue_dequeue(myQueue, (void**)&tmp);
         uthread_ctx_destroy_stack(tmp->ctx->uc_stack.ss_sp);
         free(tmp->ctx);
+        free(tmp);
     }
     queue_destroy(myQueue);
 }
@@ -195,12 +197,10 @@ void destroy_queue(queue_t myQueue)
 void activate_waiting_thread(uthread_t tid)
 {
     TCB *waitingThread = NULL;
-    //we dont change the threadScheduler, so it is fine to be preempted
-    queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)&tid, (void**)&waitingThread);
-    assert(waitingThread);
 
     preempt_disable();
 
+    queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)&tid, (void**)&waitingThread);
     queue_delete(threadScheduler.waitingThreads, waitingThread);
     queue_enqueue(threadScheduler.readyThreads, waitingThread);
 
@@ -217,6 +217,7 @@ void exit_program()
     destroy_queue(threadScheduler.finishedThreads);
     uthread_ctx_destroy_stack(threadScheduler.runningThread->ctx->uc_stack.ss_sp);
     free(threadScheduler.runningThread->ctx);
+    free(threadScheduler.runningThread);
     exit(EXIT_SUCCESS);
 }
 
@@ -235,7 +236,7 @@ void uthread_exit(int retval)
         exit_program();
 
     //if there is a thread waiting current thread
-    if(currentThread->waitingThreadTID != USHRT_MAX)
+    if(currentThread->isJoined)
         activate_waiting_thread(currentThread->waitingThreadTID);
 
     TCB *nextThread = NULL;
@@ -243,7 +244,6 @@ void uthread_exit(int retval)
     preempt_disable();
 
     queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
-    assert(nextThread);
     currentThread->retval = retval;
     queue_enqueue(threadScheduler.finishedThreads, currentThread);
     threadScheduler.runningThread = nextThread;
@@ -268,6 +268,7 @@ int reap_sthread(TCB *reapedThread)
     //free the memory allocated for reapedThread
     uthread_ctx_destroy_stack(reapedThread->ctx->uc_stack.ss_sp);
     free(reapedThread->ctx);
+    free(reapedThread);
 
     preempt_enable();
     return retval;
@@ -286,8 +287,22 @@ int uthread_join(uthread_t tid, int *retval)
     //we first need to check if @tid is finished
     //if it is, we can directly collect it finished status and return
     TCB *threadTID = NULL;
+    TCB *currentThread = threadScheduler.runningThread;
+
+    preempt_disable();
     queue_iterate(threadScheduler.finishedThreads, find_thread, (void*)&tid, (void**)&threadTID);
+    preempt_enable();
+
     if(threadTID){
+        //thread already be joined
+        if(threadTID->isJoined)
+            return -1;
+        //thread is not be joined
+        preempt_disable();
+        threadTID->isJoined = true;
+        threadTID->waitingThreadTID = currentThread->TID;
+        preempt_enable();
+
         int tmp = reap_sthread(threadTID);
         if(retval)
             *retval = tmp;
@@ -295,20 +310,29 @@ int uthread_join(uthread_t tid, int *retval)
     }
 
     //if @tid is still an active thread
-    //we have to bring it to execution and block current thread
-    TCB *currentThread = threadScheduler.runningThread;
+    //current thread should be blocked and yield
+    preempt_disable();
     queue_iterate(threadScheduler.readyThreads, find_thread, (void*)&tid, (void**)&threadTID);
+    preempt_enable();
     //fail to find @tid thread in ready list
     if(!threadTID){
+        preempt_disable();
         queue_iterate(threadScheduler.waitingThreads, find_thread, (void*)&tid, (void**)&threadTID);
+        preempt_enable();
         //fail to find @tid in waiting list
         if(!threadTID)
             return -1;
     }
 
+    //find @tid
+    if(threadTID->isJoined)
+        return -1;
     TCB *nextThread = NULL;
 
     preempt_disable();
+
+    //@tid is not joined be other thread, we need to mark it
+    threadTID->isJoined = true;
 
     //we put current thread into the waiting list
     //block it until threadTID finish its execution
@@ -317,7 +341,6 @@ int uthread_join(uthread_t tid, int *retval)
 
     //bring next readyThread to execute
     queue_dequeue(threadScheduler.readyThreads, (void**)&nextThread);
-    assert(nextThread);
     threadScheduler.runningThread = nextThread;
     //switch context to next ready thread
     uthread_ctx_switch(currentThread->ctx, nextThread->ctx);

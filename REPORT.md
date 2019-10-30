@@ -79,19 +79,17 @@
   + The data structure __uthread_control_block__ is TCB.
     + It is used to store all the information needed, includes five members:
     + __uthread_t TID__: store the ID of thread as unsigned short integer.
-    + __uthread_s status__: store one of the four status.
-    + __uthread_ctx_t *ctx__: store the current context.
-      + uthread_ctx_t is a User-level thread context type
-      + initialized for the first time when creating a thread with O.
+    + __uthread_ctx_t *ctx__: store thread's current context.
     + __int retval__: store the return value of a thread.
-    + __uthread_t waitingThreadTID__: 
+    + __bool isJoined__: indicate whether it is joined by other thread.
+    + __uthread_t waitingThreadTID__:
       + store the TID of the thread waiting for the current running thread.
     ```C
     typedef struct uthread_control_block{
         uthread_t TID;
-        uthread_s status;
         uthread_ctx_t *ctx; //include stack, sigmask, uc_mcontext
         int retval;
+        bool isJoined; //indicate whether it is joined by other thread
         uthread_t waitingThreadTID;
     }TCB;
     ```
@@ -114,7 +112,7 @@
 
 ### Global Variable
   + *threadScheduler*:
-    + catagory threads in 4 different states and schedule/manipulate them.
+    + catagorize threads in 4 different states and schedule/manipulate them.
 
 ### Function
   + *add_main_thread_to_scheduler*:

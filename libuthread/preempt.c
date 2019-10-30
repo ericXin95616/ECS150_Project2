@@ -22,7 +22,6 @@
  * whenever we receive SIGVTALRM
  * we force the current running thread
  * to yield
- * TODO: is it okay to directly call uthread_yield?
  */
 void VTALRM_handler(int signum)
 {
